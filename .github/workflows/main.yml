@@ -1,0 +1,50 @@
+name: Ubuntu 22.04 VM with Pterodactyl Support
+
+on: workflow_dispatch
+
+jobs:
+  build-vm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install QEMU & Utils
+        run: |
+          sudo apt update
+          sudo apt install -y qemu-system-x86 cloud-image-utils wget
+
+      - name: Download Ubuntu Cloud Image
+        run: |
+          wget -O ubuntu.img https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+          qemu-img resize ubuntu.img 32G
+
+      - name: Create Cloud-Init Config
+        run: |
+          cat > user-data <<EOF
+          #cloud-config
+          password: rootpass123
+          chpasswd: { expire: False }
+          ssh_pwauth: True
+          runcmd:
+            - apt update && apt upgrade -y
+            - apt install -y openssh-server curl wget sudo ca-certificates gnupg lsb-release
+            - systemctl enable ssh
+            - systemctl start ssh
+
+            # Install Docker (but not Wings, biar lo install sendiri)
+            - curl -fsSL https://get.docker.com | sh
+            - systemctl enable docker
+            - systemctl start docker
+          EOF
+
+          cloud-localds seed.img user-data
+
+      - name: Run VM
+        run: |
+          qemu-system-x86_64 -m 4096 -smp 4 -hda ubuntu.img -cdrom seed.img \
+          -net nic -net user,hostfwd=tcp::2222-:22 \
+          -nographic > vm.log 2>&1 &
+
+          sleep 60
+
+      - name: Connect with Tmate
+        uses: mxschmitt/action-tmate@v3
+        
