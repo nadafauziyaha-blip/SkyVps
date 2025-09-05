@@ -1,0 +1,116 @@
+name: VPS Ubuntu 22.04 VM (16GB RAM, 4 Core, 32GB Disk)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+    - name: Install QEMU & Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients bridge-utils virt-manager cloud-image-utils wget curl tmate
+
+    - name: Download Ubuntu 22.04 Cloud Image
+      run: |
+        URL=https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+        FILE=ubuntu-22.04.img
+        echo "📥 Downloading Ubuntu 22.04 Cloud Image..."
+        # -c = continue kalau koneksi putus
+        # --tries=20 = retry sampai 20x
+        # --timeout=30 = timeout koneksi per percobaan
+        # --show-progress = biar keliatan progress
+        wget -c --tries=20 --timeout=30 --show-progress $URL -O $FILE
+        echo "✅ Download selesai!"
+
+    - name: Prepare VM Disk
+      run: |
+        qemu-img resize ubuntu-22.04.img 32G
+
+    - name: Create Cloud-init Config (root password + hostname + all deps)
+      run: |
+        cat > user-data <<EOF
+        #cloud-config
+        hostname: skyvps
+        fqdn: skyvps.local
+        users:
+          - name: rizky
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            groups: users, admin, sudo
+            shell: /bin/bash
+            lock_passwd: false
+            plain_text_passwd: "rizkykece"
+        password: rizkykece
+        chpasswd: { expire: False }
+        ssh_pwauth: True
+        package_update: true
+        package_upgrade: true
+        packages:
+          - curl
+          - wget
+          - unzip
+          - tar
+          - sudo
+          - gnupg
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - lsb-release
+          - mariadb-server
+          - redis-server
+          - nginx
+          - php8.1
+          - php8.1-cli
+          - php8.1-gd
+          - php8.1-mysql
+          - php8.1-pdo
+          - php8.1-mbstring
+          - php8.1-tokenizer
+          - php8.1-bcmath
+          - php8.1-xml
+          - php8.1-fpm
+          - composer
+          - docker.io
+          - docker-compose
+          - ufw
+          - nodejs
+          - npm
+        runcmd:
+          - systemctl enable mariadb
+          - systemctl enable redis-server
+          - systemctl enable nginx
+          - systemctl enable docker
+          - systemctl start mariadb
+          - systemctl start redis-server
+          - systemctl start nginx
+          - systemctl start docker
+          # Buka port untuk panel & wings
+          - ufw allow 22
+          - ufw allow 80
+          - ufw allow 443
+          - ufw allow 8080
+          - ufw --force enable
+        EOF
+        echo "instance-id: iid-local01\nlocal-hostname: skyvps" > meta-data
+        cloud-localds seed.img user-data meta-data
+
+    - name: Start VM with QEMU
+      run: |
+        nohup qemu-system-x86_64 \
+          -m 16384 \
+          -smp 4 \
+          -drive file=ubuntu-22.04.img,if=virtio \
+          -drive file=seed.img,if=virtio \
+          -net nic -net user,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:8080,hostfwd=tcp::80-:80,hostfwd=tcp::443-:443 \
+          -nographic > vm.log 2>&1 &
+
+    - name: Wait for Boot
+      run: sleep 90
+
+    - name: Start SSH Session (tmate)
+      uses: mxschmitt/action-tmate@v3
+      with:
+        limit-access-to-actor: false
