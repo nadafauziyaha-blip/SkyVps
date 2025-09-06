@@ -26,7 +26,7 @@ users:\n\
     sudo: ALL=(ALL) NOPASSWD:ALL\n\
     shell: /bin/bash\n\
     lock_passwd: false\n\
-    plain_text_passwd: \"root\"\n\
+    plain_text_passwd: "root"\n\
 password: root\n\
 chpasswd: { expire: False }\n\
 ssh_pwauth: True\n\
@@ -59,11 +59,13 @@ packages:\n\
   - composer\n\
   - docker.io\n\
   - docker-compose\n\
-  - ufw\n\
   - nodejs\n\
   - npm\n\
+  - openssh-server\n\
 runcmd:\n\
   - hostnamectl set-hostname ubuntu-vm\n\
+  - systemctl enable ssh\n\
+  - systemctl start ssh\n\
   - systemctl enable mariadb\n\
   - systemctl enable redis-server\n\
   - systemctl enable nginx\n\
@@ -71,12 +73,7 @@ runcmd:\n\
   - systemctl start mariadb\n\
   - systemctl start redis-server\n\
   - systemctl start nginx\n\
-  - systemctl start docker\n\
-  - ufw allow 22\n\
-  - ufw allow 80\n\
-  - ufw allow 443\n\
-  - ufw allow 8080\n\
-  - ufw --force enable\n' > /user-data && \
+  - systemctl start docker\n' > /user-data && \
     echo "instance-id: iid-local01\nlocal-hostname: ubuntu-vm" > /meta-data && \
     cloud-localds /seed.img /user-data /meta-data
 
