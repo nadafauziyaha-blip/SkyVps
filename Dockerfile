@@ -77,11 +77,12 @@ runcmd:\n\
     echo "instance-id: iid-local01\nlocal-hostname: ubuntu-vm" > /meta-data && \
     cloud-localds /seed.img /user-data /meta-data
 
-# Jalankan langsung VM dengan VNC
+# Jalankan langsung VM tanpa VNC (console mode)
 CMD qemu-system-x86_64 \
     -m 4096 \
     -smp 2 \
     -drive file=/ubuntu.img,if=virtio,format=qcow2 \
     -drive file=/seed.img,if=virtio,format=raw \
     -net nic -net user,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:8080,hostfwd=tcp::80-:80,hostfwd=tcp::443-:443 \
-    -vnc :0
+    -nographic
+    
