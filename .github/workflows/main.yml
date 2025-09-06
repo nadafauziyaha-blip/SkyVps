@@ -1,4 +1,4 @@
-name: VPS Ubuntu 22.04 VM (Base Ready for Pterodactyl)
+name: VPS Ubuntu 22.04 VM (Pterodactyl Ready)
 
 on:
   workflow_dispatch:
@@ -12,15 +12,15 @@ jobs:
     - name: Install QEMU & Tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-kvm qemu-utils cloud-image-utils \
+        sudo apt-get -y --fix-missing install qemu-kvm qemu-utils cloud-image-utils \
           wget curl unzip tmate neofetch \
           mariadb-server redis-server nginx \
           php8.1 php8.1-cli php8.1-gd php8.1-mysql php8.1-pdo php8.1-mbstring \
           php8.1-tokenizer php8.1-bcmath php8.1-xml php8.1-fpm composer \
           docker.io docker-compose git nodejs npm
 
-        # Yarn untuk frontend panel
-        npm install -g yarn
+        # install yarn (buat frontend panel)
+        sudo npm install -g yarn
 
     - name: Download Ubuntu 22.04 Cloud Image
       run: |
@@ -38,7 +38,9 @@ jobs:
         #cloud-config
         hostname: ubuntu
         users:
-          - name: root
+          - name: ubuntu
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            groups: sudo
             shell: /bin/bash
             lock_passwd: false
             plain_text_passwd: "rootpass"
@@ -92,7 +94,7 @@ jobs:
           -nographic > vm.log 2>&1 &
 
     - name: Wait for Boot
-      run: sleep 90
+      run: sleep 120
 
     - name: Start SSH via sshx.io
       run: |
