@@ -1,75 +1,93 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "[+] Install Docker & Docker Compose..."
-apt-get update -y
-apt-get install -y docker.io docker-compose wget qemu-utils cloud-image-utils
+# =============================
+# Ubuntu 22.04 VM (Auto Setup)
+# =============================
 
-mkdir -p ~/kvm-vps
-cd ~/kvm-vps
+clear
+cat << "EOF"
+================================================
+  _    _  ____  _____ _____ _   _  _____ ____   ______     ________
+ | |  | |/ __ \|  __ \_   _| \ | |/ ____|  _ \ / __ \ \   / /___  /
+ | |__| | |  | | |__) || | |  \| | |  __| |_) | |  | \ \_/ /   / / 
+ |  __  | |  | |  ___/ | | |   \ | | |_ |  _ <| |  | |\   /   / /  
+ | |  | | |__| | |    _| |_| |\  | |__| | |_) | |__| | | |   / /__ 
+ |_|  |_|\____/|_|   |_____|_| \_|\_____|____/ \____/  |_|  /_____|
+                                                                  
+              POWERED BY HOPINGBOYZ             
+================================================
+EOF
 
-echo "[+] Buat Dockerfile..."
-cat > Dockerfile <<'EOF'
-FROM ubuntu:22.04
+# =============================
+# Configurable Variables
+# =============================
+VM_DIR="$HOME/vm"
+IMG_FILE="$VM_DIR/ubuntu-cloud.img"
+SEED_FILE="$VM_DIR/seed.iso"
+MEMORY=32768   # 32GB RAM
+CPUS=8
+SSH_PORT=24
+DISK_SIZE=100G
 
-RUN apt-get update && apt-get install -y \
-    qemu-kvm \
-    wget \
-    cloud-image-utils \
-    && rm -rf /var/lib/apt/lists/*
+mkdir -p "$VM_DIR"
+cd "$VM_DIR"
 
-WORKDIR /var/lib/vm
+# =============================
+# VM Image Setup
+# =============================
+if [ ! -f "$IMG_FILE" ]; then
+    echo "[INFO] VM image not found, creating new VM..."
+    wget -q https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img -O "$IMG_FILE"
+    qemu-img resize "$IMG_FILE" "$DISK_SIZE"
 
-# Download Ubuntu Cloud Image
-RUN wget -O ubuntu.qcow2 https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+    # Cloud-init config with hostname = ubuntu22
+    cat > user-data <<EOF
+#cloud-config
+hostname: ubuntu22
+manage_etc_hosts: true
+disable_root: false
+ssh_pwauth: true
+chpasswd:
+  list: |
+    root:root
+  expire: false
+growpart:
+  mode: auto
+  devices: ["/"]
+  ignore_growroot_disabled: false
+resize_rootfs: true
+runcmd:
+ - growpart /dev/vda 1 || true
+ - resize2fs /dev/vda1 || true
+ - sed -ri "s/^#?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
+ - systemctl restart ssh
+EOF
 
-# Resize disk jadi 100GB
-RUN qemu-img resize ubuntu.qcow2 100G
+    cat > meta-data <<EOF
+instance-id: iid-local01
+local-hostname: ubuntu22
+EOF
 
-# Cloud-init config (root/root login)
-RUN echo '#cloud-config\n\
-password: root\n\
-chpasswd: { expire: False }\n\
-ssh_pwauth: True\n' > user-data
+    cloud-localds "$SEED_FILE" user-data meta-data
+    echo "[INFO] VM setup complete!"
+else
+    echo "[INFO] VM image found, skipping setup..."
+fi
 
-RUN cloud-localds seed.iso user-data
-
-CMD qemu-system-x86_64 \
+# =============================
+# Start VM
+# =============================
+echo "[INFO] Starting VM..."
+exec qemu-system-x86_64 \
     -enable-kvm \
-    -m 32768 \
-    -smp 8 \
+    -m "$MEMORY" \
+    -smp "$CPUS" \
     -cpu host \
-    -drive file=ubuntu.qcow2,format=qcow2 \
-    -drive file=seed.iso,format=raw \
-    -net nic -net user,hostfwd=tcp::2222-:22 \
-    -nographic
-EOF
-
-echo "[+] Buat docker-compose.yml..."
-cat > docker-compose.yml <<'EOF'
-version: "3.9"
-services:
-  kvm-vps:
-    build: .
-    container_name: kvm-vps
-    privileged: true
-    devices:
-      - /dev/kvm:/dev/kvm
-    ports:
-      - "2222:22"
-    deploy:
-      resources:
-        limits:
-          cpus: "8"
-          memory: 32G
-EOF
-
-echo "[+] Build Docker image..."
-docker-compose build
-
-echo "[+] Start VPS..."
-docker-compose up -d
-
-echo "[+] VPS siap! Login SSH:"
-echo "ssh root@localhost -p 2222"
-echo "Password: root"
+    -drive file="$IMG_FILE",format=qcow2,if=virtio \
+    -drive file="$SEED_FILE",format=raw,if=virtio \
+    -boot order=c \
+    -device virtio-net-pci,netdev=n0 \
+    -netdev user,id=n0,hostfwd=tcp::"$SSH_PORT"-:22 \
+    -nographic -serial mon:stdio
+    
